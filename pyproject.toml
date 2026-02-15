@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "crm"
+version = "0.1.0"
+description = "Django CRM with JWT authentication"
+authors = ["CRM Team"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+Django = "^5.0"
+djangorestframework = "^3.14"
+djangorestframework-simplejwt = "^5.3"
+drf-yasg = "^1.21"
+django-cors-headers = "^4.3"
+psycopg2-binary = "^2.9"
+dj-database-url = "^2.1"
+gunicorn = "^21.0"
+whitenoise = "^6.6"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.0"
+flake8 = "^7.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

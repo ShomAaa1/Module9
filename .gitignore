@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.*
+
+# Django
+db.sqlite3
+media/
+staticfiles/
+
+# Poetry
+.venv/
+
+# Docker
+*.log
+
+# IDE
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
