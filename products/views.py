@@ -1,23 +1,21 @@
-from rest_framework import generics
+from rest_framework import generics, status
+from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
-from .models import Product, Supply, Sale
+from .models import Product, Supply
 from .serializers import (
     ProductSerializer,
     ProductCreateUpdateSerializer,
     SupplySerializer,
     SupplyCreateSerializer,
-    SaleSerializer,
-    SaleCreateSerializer,
 )
 from .permissions import IsCompanyMember
 
 
-def _get_user_company(request):
-    """Безопасно получить company_id (None для анонимных пользователей)."""
+def _get_company_id(request):
     user = request.user
-    if user.is_authenticated and hasattr(user, "company_id"):
+    if user.is_authenticated and getattr(user, "company_id", None):
         return user.company_id
     return None
 
@@ -27,15 +25,15 @@ def _get_user_company(request):
 
 class ProductListCreateView(generics.ListCreateAPIView):
     """
-    GET: товары на складах компании.
-    POST: добавить товар (владелец/сотрудник).
+    GET: список товаров компании.
+    POST: создать товар (quantity=0, пополнение только через поставки).
     """
     permission_classes = (IsCompanyMember,)
 
     def get_queryset(self):
-        company_id = _get_user_company(self.request)
-        if company_id:
-            return Product.objects.filter(storage__company_id=company_id).select_related("storage")
+        cid = _get_company_id(self.request)
+        if cid:
+            return Product.objects.filter(storage__company_id=cid).select_related("storage")
         return Product.objects.none()
 
     def get_serializer_class(self):
@@ -49,9 +47,9 @@ class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = (IsCompanyMember,)
 
     def get_queryset(self):
-        company_id = _get_user_company(self.request)
-        if company_id:
-            return Product.objects.filter(storage__company_id=company_id).select_related("storage")
+        cid = _get_company_id(self.request)
+        if cid:
+            return Product.objects.filter(storage__company_id=cid).select_related("storage")
         return Product.objects.none()
 
     def get_serializer_class(self):
@@ -63,25 +61,57 @@ class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
 # ─── Поставки ───
 
 
-class SupplyListCreateView(generics.ListCreateAPIView):
+class SupplyListCreateView(generics.GenericAPIView):
     """
     GET: список поставок компании.
-    POST: создать новую поставку (увеличивает остаток товара).
+    POST: создать поставку (supplier_id + products [{id, quantity}]).
     """
     permission_classes = (IsCompanyMember,)
+    queryset = Supply.objects.none()
 
     def get_queryset(self):
-        company_id = _get_user_company(self.request)
-        if company_id:
+        cid = _get_company_id(self.request)
+        if cid:
             return Supply.objects.filter(
-                product__storage__company_id=company_id
-            ).select_related("product", "supplier", "created_by")
+                supplier__company_id=cid
+            ).select_related("supplier", "created_by").prefetch_related("items__product")
         return Supply.objects.none()
 
-    def get_serializer_class(self):
-        if self.request.method == "POST":
-            return SupplyCreateSerializer
-        return SupplySerializer
+    @swagger_auto_schema(responses={200: SupplySerializer(many=True)})
+    def get(self, request, *args, **kwargs):
+        qs = self.get_queryset()
+        serializer = SupplySerializer(qs, many=True)
+        return Response(serializer.data)
+
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["supplier_id", "products"],
+            properties={
+                "supplier_id": openapi.Schema(type=openapi.TYPE_INTEGER, description="ID поставщика"),
+                "products": openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        required=["id", "quantity"],
+                        properties={
+                            "id": openapi.Schema(type=openapi.TYPE_INTEGER, description="ID товара"),
+                            "quantity": openapi.Schema(type=openapi.TYPE_INTEGER, description="Количество (>0)"),
+                        },
+                    ),
+                ),
+            },
+        ),
+        responses={201: SupplySerializer(), 400: "Ошибка валидации"},
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = SupplyCreateSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        supply = serializer.save()
+        return Response(
+            SupplySerializer(supply).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class SupplyDetailView(generics.RetrieveAPIView):
@@ -90,54 +120,9 @@ class SupplyDetailView(generics.RetrieveAPIView):
     serializer_class = SupplySerializer
 
     def get_queryset(self):
-        company_id = _get_user_company(self.request)
-        if company_id:
+        cid = _get_company_id(self.request)
+        if cid:
             return Supply.objects.filter(
-                product__storage__company_id=company_id
-            ).select_related("product", "supplier", "created_by")
+                supplier__company_id=cid
+            ).select_related("supplier", "created_by").prefetch_related("items__product")
         return Supply.objects.none()
-
-
-# ─── Продажи ───
-
-
-class SaleListCreateView(generics.ListCreateAPIView):
-    """
-    GET: список продаж компании.
-    POST: создать продажу (уменьшает остаток товара).
-    """
-    permission_classes = (IsCompanyMember,)
-
-    def get_queryset(self):
-        company_id = _get_user_company(self.request)
-        if company_id:
-            return Sale.objects.filter(
-                product__storage__company_id=company_id
-            ).select_related("product", "created_by")
-        return Sale.objects.none()
-
-    def get_serializer_class(self):
-        if self.request.method == "POST":
-            return SaleCreateSerializer
-        return SaleSerializer
-
-
-class SaleDetailView(generics.RetrieveUpdateAPIView):
-    """
-    GET: детали продажи.
-    PUT/PATCH: редактирование продажи (владелец/сотрудник).
-    """
-    permission_classes = (IsCompanyMember,)
-
-    def get_queryset(self):
-        company_id = _get_user_company(self.request)
-        if company_id:
-            return Sale.objects.filter(
-                product__storage__company_id=company_id
-            ).select_related("product", "created_by")
-        return Sale.objects.none()
-
-    def get_serializer_class(self):
-        if self.request.method in ("PUT", "PATCH"):
-            return SaleCreateSerializer
-        return SaleSerializer

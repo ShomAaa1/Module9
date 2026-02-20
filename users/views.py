@@ -139,7 +139,7 @@ class EmployeeAddView(generics.GenericAPIView):
             )
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        employee = User.objects.get(email=serializer.validated_data["email"])
+        employee = serializer.validated_data["_user"]
         employee.company = request.user.company
         employee.save(update_fields=["company"])
         return Response(EmployeeSerializer(employee).data, status=status.HTTP_200_OK)

@@ -6,7 +6,7 @@ class SupplierSerializer(serializers.ModelSerializer):
     """Поставщик (чтение)."""
     class Meta:
         model = Supplier
-        fields = ("id", "name", "contact_info", "company", "created_at", "updated_at")
+        fields = ("id", "title", "inn", "company", "created_at", "updated_at")
         read_only_fields = ("id", "company", "created_at", "updated_at")
 
 
@@ -14,7 +14,7 @@ class SupplierCreateUpdateSerializer(serializers.ModelSerializer):
     """Создание/обновление поставщика. company берётся из user.company."""
     class Meta:
         model = Supplier
-        fields = ("id", "name", "contact_info", "company", "created_at", "updated_at")
+        fields = ("id", "title", "inn", "company", "created_at", "updated_at")
         read_only_fields = ("id", "company", "created_at", "updated_at")
 
     def create(self, validated_data):

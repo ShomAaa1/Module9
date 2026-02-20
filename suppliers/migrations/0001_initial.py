@@ -17,8 +17,8 @@ class Migration(migrations.Migration):
             name="Supplier",
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("name", models.CharField(max_length=255, verbose_name="Название")),
-                ("contact_info", models.TextField(blank=True, verbose_name="Контактная информация")),
+                ("title", models.CharField(max_length=255, verbose_name="Название")),
+                ("inn", models.CharField(max_length=12, verbose_name="ИНН")),
                 ("created_at", models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")),
                 ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Дата обновления")),
                 ("company", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="suppliers", to="companies.company", verbose_name="Компания")),
@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
                 "verbose_name": "Поставщик",
                 "verbose_name_plural": "Поставщики",
                 "db_table": "suppliers_supplier",
-                "ordering": ["name"],
+                "ordering": ["title"],
             },
         ),
     ]

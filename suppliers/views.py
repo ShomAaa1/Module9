@@ -35,10 +35,10 @@ class SupplierListCreateView(generics.ListCreateAPIView):
     @swagger_auto_schema(
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
-            required=["name"],
+            required=["title", "inn"],
             properties={
-                "name": openapi.Schema(type=openapi.TYPE_STRING, description="Название поставщика"),
-                "contact_info": openapi.Schema(type=openapi.TYPE_STRING, description="Контакты"),
+                "title": openapi.Schema(type=openapi.TYPE_STRING, description="Название поставщика"),
+                "inn": openapi.Schema(type=openapi.TYPE_STRING, description="ИНН поставщика"),
             },
         ),
         responses={201: SupplierSerializer(), 403: "Нет доступа"},

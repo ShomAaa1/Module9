@@ -1,5 +1,9 @@
+from django.db import transaction
 from rest_framework import serializers
-from .models import Product, Supply, Sale
+from .models import Product, Supply, SupplyProduct
+
+
+# ─── Product ───
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -9,18 +13,18 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = (
-            "id", "name", "description", "sku", "price",
+            "id", "title", "purchase_price", "sale_price",
             "quantity", "storage", "storage_address",
             "created_at", "updated_at",
         )
-        read_only_fields = ("id", "quantity", "storage", "storage_address", "created_at", "updated_at")
+        read_only_fields = ("id", "quantity", "created_at", "updated_at")
 
 
 class ProductCreateUpdateSerializer(serializers.ModelSerializer):
-    """Создание/обновление товара. storage берётся из складов компании пользователя."""
+    """Создание/обновление товара. quantity всегда 0 при создании (пополнение только через поставки)."""
     class Meta:
         model = Product
-        fields = ("id", "name", "description", "sku", "price", "storage", "created_at", "updated_at")
+        fields = ("id", "title", "purchase_price", "sale_price", "storage", "created_at", "updated_at")
         read_only_fields = ("id", "created_at", "updated_at")
 
     def validate_storage(self, value):
@@ -29,91 +33,103 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Склад не принадлежит вашей компании.")
         return value
 
-
-class SupplySerializer(serializers.ModelSerializer):
-    """Поставка (чтение)."""
-    product_name = serializers.CharField(source="product.name", read_only=True)
-    supplier_name = serializers.CharField(source="supplier.name", read_only=True)
-    created_by_username = serializers.CharField(source="created_by.username", read_only=True)
-
-    class Meta:
-        model = Supply
-        fields = (
-            "id", "product", "product_name", "supplier", "supplier_name",
-            "quantity", "unit_price", "created_by", "created_by_username", "created_at",
-        )
-        read_only_fields = ("id", "created_by", "created_by_username", "created_at")
+    def create(self, validated_data):
+        validated_data["quantity"] = 0
+        return super().create(validated_data)
 
 
-class SupplyCreateSerializer(serializers.ModelSerializer):
-    """Создание поставки. Увеличивает остаток товара."""
-    class Meta:
-        model = Supply
-        fields = ("id", "product", "supplier", "quantity", "unit_price", "created_at")
-        read_only_fields = ("id", "created_at")
+# ─── Supply ───
 
-    def validate_product(self, value):
+
+class SupplyProductItemSerializer(serializers.Serializer):
+    """Элемент списка товаров в поставке (для запроса)."""
+    id = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+
+
+class SupplyCreateSerializer(serializers.Serializer):
+    """
+    Создание поставки.
+    Принимает: supplier_id + products [{id, quantity}, ...].
+    Увеличивает quantity товаров.
+    """
+    supplier_id = serializers.IntegerField()
+    products = SupplyProductItemSerializer(many=True)
+
+    def validate_supplier_id(self, value):
+        from suppliers.models import Supplier
         user = self.context["request"].user
-        if value.storage.company_id != user.company_id:
-            raise serializers.ValidationError("Товар не принадлежит вашей компании.")
-        return value
-
-    def validate_supplier(self, value):
-        user = self.context["request"].user
-        if value.company_id != user.company_id:
+        try:
+            supplier = Supplier.objects.get(id=value)
+        except Supplier.DoesNotExist:
+            raise serializers.ValidationError("Поставщик не найден.")
+        if supplier.company_id != user.company_id:
             raise serializers.ValidationError("Поставщик не принадлежит вашей компании.")
         return value
 
+    def validate_products(self, value):
+        if not value:
+            raise serializers.ValidationError("Список товаров не может быть пустым.")
+        user = self.context["request"].user
+        product_ids = [item["id"] for item in value]
+        products = Product.objects.filter(id__in=product_ids).select_related("storage")
+        found_ids = {p.id for p in products}
+        missing = set(product_ids) - found_ids
+        if missing:
+            raise serializers.ValidationError(f"Товары не найдены: {missing}")
+        for p in products:
+            if p.storage.company_id != user.company_id:
+                raise serializers.ValidationError(f"Товар «{p.title}» не принадлежит вашей компании.")
+        for item in value:
+            if item["quantity"] <= 0:
+                raise serializers.ValidationError("Количество должно быть положительным.")
+        return value
+
+    @transaction.atomic
     def create(self, validated_data):
-        validated_data["created_by"] = self.context["request"].user
-        supply = super().create(validated_data)
-        # Увеличиваем остаток товара на складе
-        product = supply.product
-        product.quantity += supply.quantity
-        product.save(update_fields=["quantity"])
+        user = self.context["request"].user
+        supply = Supply.objects.create(
+            supplier_id=validated_data["supplier_id"],
+            created_by=user,
+        )
+        product_ids = [item["id"] for item in validated_data["products"]]
+        products_map = {p.id: p for p in Product.objects.filter(id__in=product_ids).select_for_update()}
+
+        supply_products = []
+        for item in validated_data["products"]:
+            product = products_map[item["id"]]
+            product.quantity += item["quantity"]
+            product.save(update_fields=["quantity"])
+            supply_products.append(SupplyProduct(
+                supply=supply,
+                product=product,
+                quantity=item["quantity"],
+            ))
+        SupplyProduct.objects.bulk_create(supply_products)
         return supply
 
 
-class SaleSerializer(serializers.ModelSerializer):
-    """Продажа (чтение)."""
-    product_name = serializers.CharField(source="product.name", read_only=True)
-    created_by_username = serializers.CharField(source="created_by.username", read_only=True)
+class SupplyProductReadSerializer(serializers.ModelSerializer):
+    """Элемент поставки (для чтения)."""
+    product_id = serializers.IntegerField(source="product.id")
+    product_title = serializers.CharField(source="product.title")
 
     class Meta:
-        model = Sale
+        model = SupplyProduct
+        fields = ("product_id", "product_title", "quantity")
+
+
+class SupplySerializer(serializers.ModelSerializer):
+    """Поставка (чтение)."""
+    supplier_title = serializers.CharField(source="supplier.title", read_only=True)
+    created_by_username = serializers.CharField(source="created_by.username", read_only=True, default=None)
+    items = SupplyProductReadSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Supply
         fields = (
-            "id", "product", "product_name", "quantity", "unit_price",
-            "created_by", "created_by_username", "created_at",
+            "id", "supplier", "supplier_title",
+            "items", "delivery_date",
+            "created_by", "created_by_username",
         )
-        read_only_fields = ("id", "created_by", "created_by_username", "created_at")
-
-
-class SaleCreateSerializer(serializers.ModelSerializer):
-    """Создание продажи. Уменьшает остаток товара."""
-    class Meta:
-        model = Sale
-        fields = ("id", "product", "quantity", "unit_price", "created_at")
-        read_only_fields = ("id", "created_at")
-
-    def validate_product(self, value):
-        user = self.context["request"].user
-        if value.storage.company_id != user.company_id:
-            raise serializers.ValidationError("Товар не принадлежит вашей компании.")
-        return value
-
-    def validate(self, attrs):
-        product = attrs["product"]
-        if attrs["quantity"] > product.quantity:
-            raise serializers.ValidationError(
-                {"quantity": f"Недостаточно товара на складе. Остаток: {product.quantity}."}
-            )
-        return attrs
-
-    def create(self, validated_data):
-        validated_data["created_by"] = self.context["request"].user
-        sale = super().create(validated_data)
-        # Уменьшаем остаток
-        product = sale.product
-        product.quantity -= sale.quantity
-        product.save(update_fields=["quantity"])
-        return sale
+        read_only_fields = fields

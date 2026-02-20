@@ -51,16 +51,28 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
 
 class AddEmployeeSerializer(serializers.Serializer):
-    """Добавление сотрудника в компанию по email."""
-    email = serializers.EmailField()
+    """Добавление сотрудника в компанию по id или email (достаточно одного поля)."""
+    user_id = serializers.IntegerField(required=False)
+    email = serializers.EmailField(required=False)
 
-    def validate_email(self, value):
+    def validate(self, attrs):
+        user_id = attrs.get("user_id")
+        email = attrs.get("email")
+        if not user_id and not email:
+            raise serializers.ValidationError("Укажите user_id или email.")
+
         try:
-            user = User.objects.get(email=value)
+            if user_id:
+                user = User.objects.get(id=user_id)
+            else:
+                user = User.objects.get(email=email)
         except User.DoesNotExist:
-            raise serializers.ValidationError("Пользователь с таким email не найден.")
+            raise serializers.ValidationError("Пользователь не найден.")
+
         if user.company_id is not None:
             raise serializers.ValidationError("Пользователь уже состоит в компании.")
         if user.is_company_owner:
             raise serializers.ValidationError("Владелец компании не может быть добавлен как сотрудник.")
-        return value
+
+        attrs["_user"] = user
+        return attrs

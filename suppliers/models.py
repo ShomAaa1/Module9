@@ -4,8 +4,8 @@ from companies.models import Company
 
 class Supplier(models.Model):
     """Поставщик, привязанный к компании."""
-    name = models.CharField("Название", max_length=255)
-    contact_info = models.TextField("Контактная информация", blank=True)
+    title = models.CharField("Название", max_length=255)
+    inn = models.CharField("ИНН", max_length=12)
     company = models.ForeignKey(
         Company,
         on_delete=models.CASCADE,
@@ -19,7 +19,7 @@ class Supplier(models.Model):
         verbose_name = "Поставщик"
         verbose_name_plural = "Поставщики"
         db_table = "suppliers_supplier"
-        ordering = ("name",)
+        ordering = ("title",)
 
     def __str__(self):
-        return self.name
+        return f"{self.title} (ИНН {self.inn})"
