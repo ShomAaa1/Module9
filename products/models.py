@@ -76,6 +76,12 @@ class SupplyProduct(models.Model):
         verbose_name = "Товар в поставке"
         verbose_name_plural = "Товары в поставке"
         db_table = "products_supply_product"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["supply", "product"],
+                name="unique_supply_product",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.product.title} x{self.quantity}"

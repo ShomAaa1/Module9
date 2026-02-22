@@ -71,7 +71,14 @@ class SupplyCreateSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("Список товаров не может быть пустым.")
         user = self.context["request"].user
-        product_ids = [item["id"] for item in value]
+
+        merged: dict[int, int] = {}
+        for item in value:
+            if item["quantity"] <= 0:
+                raise serializers.ValidationError("Количество должно быть положительным.")
+            merged[item["id"]] = merged.get(item["id"], 0) + item["quantity"]
+
+        product_ids = list(merged.keys())
         products = Product.objects.filter(id__in=product_ids).select_related("storage")
         found_ids = {p.id for p in products}
         missing = set(product_ids) - found_ids
@@ -80,10 +87,8 @@ class SupplyCreateSerializer(serializers.Serializer):
         for p in products:
             if p.storage.company_id != user.company_id:
                 raise serializers.ValidationError(f"Товар «{p.title}» не принадлежит вашей компании.")
-        for item in value:
-            if item["quantity"] <= 0:
-                raise serializers.ValidationError("Количество должно быть положительным.")
-        return value
+
+        return [{"id": pid, "quantity": qty} for pid, qty in merged.items()]
 
     @transaction.atomic
     def create(self, validated_data):

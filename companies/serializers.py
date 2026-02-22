@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Company
+from .models import Company, JoinRequest
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -53,3 +53,19 @@ class CompanyCreateUpdateSerializer(serializers.ModelSerializer):
         user.is_company_owner = True
         user.save(update_fields=["company", "is_company_owner"])
         return company
+
+
+class JoinRequestSerializer(serializers.ModelSerializer):
+    """Заявка на вступление (чтение)."""
+    username = serializers.CharField(source="user.username", read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
+    company_title = serializers.CharField(source="company.title", read_only=True)
+
+    class Meta:
+        model = JoinRequest
+        fields = (
+            "id", "user", "username", "email",
+            "company", "company_title",
+            "status", "created_at", "reviewed_at",
+        )
+        read_only_fields = fields
