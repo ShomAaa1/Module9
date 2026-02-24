@@ -52,6 +52,13 @@ class SaleCreateSerializer(serializers.Serializer):
     sale_date = serializers.DateTimeField(required=False)
     product_sales = ProductSaleItemSerializer(many=True)
 
+    def validate_sale_date(self, value):
+        if value and value > timezone.now():
+            raise serializers.ValidationError(
+                "Дата продажи не может быть позже текущей даты."
+            )
+        return value
+
     def validate_product_sales(self, value):
         if not value:
             raise serializers.ValidationError("Список товаров не может быть пустым.")
@@ -117,3 +124,10 @@ class SaleUpdateSerializer(serializers.ModelSerializer):
         model = Sale
         fields = ("id", "buyer_name", "sale_date", "updated_at")
         read_only_fields = ("id", "updated_at")
+
+    def validate_sale_date(self, value):
+        if value > timezone.now():
+            raise serializers.ValidationError(
+                "Дата продажи не может быть позже текущей даты."
+            )
+        return value
